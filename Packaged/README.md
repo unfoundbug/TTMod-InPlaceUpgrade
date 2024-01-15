@@ -42,6 +42,7 @@ Your game folder is likely in one of these places:
 ## compatibility
 | Mod Version | Game Version |
 | --- | --- |
+| 0.1.0 | 0.2.0 |
 | 0.0.9 | 0.2.0 |
 | 0.0.8 | 0.2.0 |
 | 0.0.7 | 0.2.0 |
@@ -52,7 +53,14 @@ Your game folder is likely in one of these places:
 | 0.0.2 | 0.1.1d/0.1.2a |
 
 ## Changelog
-
+### V0.1.0
+- Move source to github and setup links.
+- Seperate the traversal limit in aggressive mode from the replace limit.
+	- larger traversal limits allows the tool to scan larger belt networks and find unupgraded belts further from the upgrade point.
+	- Traversal limit applies to aggressive search only.
+- Add SameBeltOverride
+	- Lets a player start an upgrade if they are holding a conveyor.
+		- If looking at the same type of belt, the mod will look for belts that need to be upgraded and are connected.
 ### V0.0.9
 - Minor bug fixes.
 	- Nothing functional, just reducing error logging.

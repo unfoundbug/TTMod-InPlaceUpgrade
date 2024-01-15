@@ -1,7 +1,7 @@
 {
     "name": "InPlaceUpgrade",
-    "version_number": "0.0.9",
-    "website_url": "https://github.com/unfoundbug",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/unfoundbug/TTMod-InPlaceUpgrade",
     "description": "Allows the player to replace like-for like machines and belts.",
     "dependencies": [ "BepInEx-BepInExPack-5.4.2100" ]
 }

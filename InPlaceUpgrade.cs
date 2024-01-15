@@ -27,10 +27,11 @@ namespace InPlaceUpgrade
         public const string pluginGuid = "inplaceupgrade.nhickling.co.uk";
         public const string pluginName = "InPlaceUpgrade";
         public const string pluginShort = "IPU";
-        public const string pluginVersion = "0.0.0.9";
+        public const string pluginVersion = "0.1.0";
 
         public static ConfigEntry<bool> UseAggressiveBeltFinder;
         public static ConfigEntry<bool> EnableLogging;
+        public static ConfigEntry<bool> EnableSameBeltTriggering;
         public static bool loggingEnabled;
         public static ConfigEntry<int> TraverseLimit;
         public static ConfigEntry<int> ReplaceCount;
@@ -60,10 +61,11 @@ namespace InPlaceUpgrade
 
             UseAggressiveBeltFinder = ((BaseUnityPlugin)this).Config.Bind<bool>("Config", "Aggressive", false, new ConfigDescription("Search for belts indirectly.", (AcceptableValueBase)(object)new AcceptableValueRange<bool>(false, true), Array.Empty<object>()));
             EnableLogging = ((BaseUnityPlugin)this).Config.Bind<bool>("Config", "Logging", false, new ConfigDescription("Enable disagnostic logging. Can cause lag. (Value is ONLY loaded at startup, changes after WILL be ignored for performance reasons)", (AcceptableValueBase)(object)new AcceptableValueRange<bool>(false, true), Array.Empty<object>()));
+            EnableSameBeltTriggering = ((BaseUnityPlugin)this).Config.Bind<bool>("Config", "EnableSameBeltTriggering", true, new ConfigDescription("Enable starting an in-place-upgrade of belts when looking at the same type of belt.", (AcceptableValueBase)(object)new AcceptableValueRange<bool>(false, true), Array.Empty<object>()));
             loggingEnabled = EnableLogging.Value;
             ReplaceCount = ((BaseUnityPlugin)this).Config.Bind<int>("Config", "ReplaceCount", 50, new ConfigDescription("How many belts is the mod allowed to replace at once. High values can cause a stutter when starting replacement.", (AcceptableValueBase)(object)new AcceptableValueRange<int>(25, 100), Array.Empty<object>()));
             TraverseLimit = ((BaseUnityPlugin)this).Config.Bind<int>("Config", "TraverseLimit", 50, new ConfigDescription("How many belts is the mod allowed to scan at once. (Used when Aggresive ssearch is enabled)", (AcceptableValueBase)(object)new AcceptableValueRange<int>(25, 100), Array.Empty<object>()));
-            modLogger.LogInfo($"Loaded settings from config. Aggressive:{UseAggressiveBeltFinder.Value}. Logging {EnableLogging.Value}. Depth {SearchDepth.Value}");
+            modLogger.LogInfo($"Loaded settings from config. Aggressive:{UseAggressiveBeltFinder.Value}. Logging {EnableLogging.Value}. Depth {TraverseLimit.Value}. Count {ReplaceCount.Value}");
             
 #if ExtractLayerMask
             Harmony harmony = new Harmony(pluginGuid);
@@ -214,11 +216,13 @@ namespace InPlaceUpgrade
 
                                 if (techPlayer.toolbar.selectedInfo.buildable)
                                 {
-                                    var playerSelected = techPlayer.toolbar.selectedBuildableInfo;
-                                    if(playerSelected.GetInstanceType() == targetMachineRef.typeIndex)
+                                    var playerSelected = techPlayer.toolbar.selectedBuildableInfo;                                    
+                                    if (playerSelected.GetInstanceType() == targetMachineRef.typeIndex)
                                     {
-                                        TryDetailLog($" Matching item type, checking for item difference.");
-                                        if (playerSelected.uniqueId != targetMachineRef.ResId)
+                                        bool isDifferent = playerSelected.uniqueId != targetMachineRef.ResId;
+                                        bool sameBeltOverride = EnableSameBeltTriggering.Value && targetMachineRef.typeIndex == MachineTypeEnum.Conveyor;
+                                        TryDetailLog($" Matching item type, checking for item difference. {isDifferent}/{sameBeltOverride}");
+                                        if (isDifferent || sameBeltOverride)
                                         {
                                             var selectedItem = techPlayer.toolbar.selectedInfo;
                                             var itemCount = techPlayer.inventory.GetResourceCount(selectedItem.uniqueId);
@@ -226,9 +230,13 @@ namespace InPlaceUpgrade
                                             TryDetailLog($" Need to replace {toReplace.Count} items.");
                                             TryDetailLog($" Found {itemCount} items in inventory.");
 
-                                            if (toReplace.Count <= itemCount)
+                                            if(toReplace.Count == 0)
+                                            {
+                                                TryShowNotification($"{pluginShort}: Nothing to replace found.");
+                                            } else if (toReplace.Count <= itemCount)
                                             {
                                                 TryDetailLog($" Found enough items");
+                                                TryShowNotification($"{pluginShort}: Replacing {toReplace.Count} items.");
 
                                                 var toDestroy = new List<uint>();
                                                 foreach (var replace in toReplace)
@@ -462,8 +470,9 @@ namespace InPlaceUpgrade
 
                         TryDetailLog($" Found {linkedConveyors.Count} linked conveyors");
 
-                       linkedConveyors = linkedConveyors.Where(linked => linked._myDef.uniqueId != inventoryRef.uniqueId).ToList();
+                        linkedConveyors = linkedConveyors.Where(linked => linked._myDef.uniqueId != inventoryRef.uniqueId).ToList();
                         TryDetailLog($" Found {linkedConveyors.Count} conveyors to replace");
+                        
 
                         TryDetailLog($" Sorting by distance");
                         linkedConveyors = linkedConveyors.OrderBy(linked => (int)Vector3Int.Distance(linked.gridInfo.minPos, foundMachine.MyGridInfo.minPos)).ToList();
@@ -472,7 +481,14 @@ namespace InPlaceUpgrade
                         {
                             if (!machinesToReplace.Contains(conv.gridInfo.myRef))
                             {
-                                machinesToReplace.Add(conv.gridInfo.myRef);
+                                if (machinesToReplace.Count < ReplaceCount.Value)
+                                {
+                                    machinesToReplace.Add(conv.gridInfo.myRef);
+                                }
+                                else
+                                {
+                                    TryDetailLog($"Maximum replace count hit. {ReplaceCount.Value}");
+                                }
                             }
                         }
                     }
@@ -552,7 +568,7 @@ namespace InPlaceUpgrade
             }
             // Scan forward, then clear to scan reverse
             handleConveyor(sourcePoint);
-            int replaceLim = TraverseLimit.Value;
+            int traverseLimit = TraverseLimit.Value;
             while (true)
             {
                 TryDetailLog($" Traverse run state - CurCount:{foundConveyors.Count} Queue:{conveyorsToScan.Count} ");
@@ -561,9 +577,9 @@ namespace InPlaceUpgrade
                     handleConveyor(conveyorsToScan.Dequeue());
                 }
 
-                if(foundConveyors.Count() > replaceLim)
+                if(foundConveyors.Count() > traverseLimit)
                 {
-                    TryDetailLog($" Traverse limit hit. Found {foundConveyors.Count()} limit {replaceLim}");
+                    TryDetailLog($" Traverse limit hit. Found {foundConveyors.Count()} limit {traverseLimit}");
                     break;
                 }
 
